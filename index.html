@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Walkie-Talkie Command Center Pro</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-blue: #3b82f6;
+            --accent-yellow: #f59e0b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --border-color: #334155;
+        }
+
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg-color); color: var(--text-main); margin: 0; padding: 20px; }
+        .container { max-width: 1250px; margin: auto; }
+        
+        header { text-align: center; margin-bottom: 25px; }
+        header h1 { font-size: 28px; color: var(--accent-blue); margin: 0; text-transform: uppercase; letter-spacing: 1px; }
+        header p { color: var(--text-muted); font-size: 14px; margin-top: 5px; }
+
+        /* Global Settings */
+        .global-box { background: var(--card-bg); border: 1px solid var(--border-color); padding: 20px; border-radius: 12px; margin-bottom: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; align-items: center; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3); }
+        .control-group { display: flex; flex-direction: column; font-size: 13px; font-weight: bold; color: var(--text-muted); }
+        
+        input, select { padding: 9px; margin-top: 5px; font-size: 14px; border: 1px solid #93c5fd; border-radius: 6px; background: #e0f2fe; color: #0f172a; outline: none; font-weight: 600; }
+        select option { background: #e0f2fe; color: #0f172a; }
+        select option:checked { background: #1e3a8a !important; color: #ffffff !important; }
+
+        button { padding: 10px; margin-top: 5px; font-size: 14px; border: 1px solid var(--border-color); border-radius: 6px; background: #0f172a; color: white; cursor: pointer; font-weight: bold; }
+        .connect-btn { background: linear-gradient(135deg, #3b82f6, #1d4ed8); border: none; text-transform: uppercase; letter-spacing: 0.5px; }
+        .connect-btn:hover { background: linear-gradient(135deg, #2563eb, #1e40af); }
+
+        #conn-status { grid-column: 1 / -1; font-weight: bold; padding: 8px 12px; border-radius: 6px; background: rgba(239, 68, 68, 0.1); color: var(--accent-red); border: 1px solid rgba(239, 68, 68, 0.3); text-align: center; }
+
+        /* Master / All-Call Broadcast Bar */
+        .master-call-box { background: linear-gradient(135deg, #1e293b, #0f172a); border: 2px dashed var(--accent-blue); padding: 15px 20px; border-radius: 12px; margin-bottom: 25px; display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 15px; flex-wrap: wrap; }
+        .master-settings { display: flex; gap: 10px; align-items: center; }
+        .master-controls { display: flex; gap: 10px; align-items: center; }
+        .mic-master-btn { background: var(--accent-red); color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 8px; box-shadow: 0 0 10px rgba(239, 68, 68, 0.4); }
+        .mic-master-btn.active { background: #dc2626; animation: pulse 1s infinite; }
+        
+        .group-monitor-btn { background: #334155; color: white; border: none; padding: 10px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        .group-monitor-btn.active-group-monitor { background: var(--accent-green); animation: pulse 1s infinite; box-shadow: 0 0 10px rgba(16, 185, 129, 0.4); }
+
+        .section-title { font-size: 18px; color: #e2e8f0; margin-bottom: 12px; border-left: 4px solid var(--accent-blue); padding-left: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+        /* Radio Cards Grid */
+        .radios-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 20px; }
+        .radio-card { background: var(--card-bg); border: 1px solid var(--border-color); padding: 20px; border-radius: 12px; position: relative; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2); }
+        
+        .radio-card::before { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; background: var(--accent-red); transition: background 0.3s; }
+        .radio-card.active-online::before { background: var(--accent-green); }
+        .radio-card.traffic-flashing::before { animation: flashRed 1s infinite; background: var(--accent-red); }
+
+        .radio-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; }
+        .status-badge { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: bold; }
+        
+        .status-dot { height: 12px; width: 12px; background-color: var(--accent-red); border-radius: 50%; box-shadow: 0 0 8px var(--accent-red); transition: 0.3s; }
+        .status-dot.online { background-color: var(--accent-green); box-shadow: 0 0 10px var(--accent-green); }
+        .status-dot.talking { background-color: var(--accent-yellow) !important; box-shadow: 0 0 12px var(--accent-yellow) !important; animation: yellowBlink 0.25s infinite; }
+
+        .master-badge { display: none; background: var(--accent-blue); color: white; font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: bold; text-transform: uppercase; animation: pulse 1s infinite; }
+        .master-badge.visible { display: inline-block; }
+
+        .telemetry-info { display: flex; gap: 12px; font-size: 11px; color: var(--text-muted); background: #0f172a; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border-color); align-items: center; }
+        
+        .wifi-bars { display: flex; align-items: flex-end; gap: 2px; height: 12px; }
+        .wifi-bar { width: 3px; background: #334155; border-radius: 1px; }
+        .wifi-bar.b1 { height: 3px; }
+        .wifi-bar.b2 { height: 6px; }
+        .wifi-bar.b3 { height: 9px; }
+        .wifi-bar.b4 { height: 12px; }
+        .wifi-bar.active { background: var(--accent-green); }
+        .wifi-bar.warning { background: var(--accent-red); }
+
+        .battery-container { display: flex; align-items: center; gap: 4px; }
+        .battery-icon { width: 22px; height: 11px; border: 2px solid #94a3b8; border-radius: 3px; padding: 1px; position: relative; display: flex; align-items: center; }
+        .battery-icon::after { content: ''; position: absolute; right: -4px; top: 3px; width: 2px; height: 5px; background: #94a3b8; border-radius: 0 1px 1px 0; }
+        .battery-fill { height: 100%; width: 100%; background: var(--accent-green); border-radius: 1px; transition: width 0.3s, background 0.3s; }
+        .battery-icon.low .battery-fill { background: var(--accent-red); }
+
+        .radio-body { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .field-group { display: flex; flex-direction: column; font-size: 12px; color: var(--text-muted); }
+        .field-group.full-width { grid-column: span 2; }
+        .field-group label { font-weight: bold; margin-bottom: 3px; color: #cbd5e1; }
+
+        .permissions-row { display: flex; gap: 15px; margin-top: 5px; align-items: center; background: #0f172a; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); }
+        .permissions-row label { color: #f8fafc; font-weight: 600; display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 13px; }
+        .permissions-row input[type="checkbox"] { accent-color: var(--accent-blue); width: 16px; height: 16px; cursor: pointer; }
+
+        .audio-control-bar { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; background: #0f172a; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); }
+        .audio-btns { display: flex; gap: 6px; }
+        .icon-btn { background: #334155; border: none; padding: 6px 10px; border-radius: 4px; color: white; cursor: pointer; font-size: 14px; }
+        .icon-btn.active-mic { background: var(--accent-red); animation: pulse 1s infinite; }
+        .icon-btn.active-spk { background: var(--accent-blue); }
+
+        .vu-meter { display: flex; gap: 3px; align-items: center; height: 14px; background: #020617; padding: 3px 6px; border-radius: 4px; border: 1px solid #1e293b; }
+        .vu-led { width: 5px; height: 10px; background: #1e293b; border-radius: 1px; transition: background 0.08s ease; }
+        
+        .save-btn { background: #059669; color: white; border: none; padding: 8px 14px; cursor: pointer; font-weight: bold; border-radius: 6px; width: 100%; margin-top: 12px; text-transform: uppercase; font-size: 12px; }
+        .save-btn:hover { background: #047857; }
+
+        .toast-msg { position: fixed; bottom: 20px; right: 20px; background: var(--accent-green); color: white; padding: 10px 20px; border-radius: 6px; font-weight: bold; box-shadow: 0 5px 15px rgba(0,0,0,0.3); z-index: 999; display: none; }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.3; }
+            100% { opacity: 1; }
+        }
+
+        @keyframes yellowBlink {
+            0% { opacity: 1; }
+            50% { opacity: 0.1; }
+            100% { opacity: 1; }
+        }
+
+        @keyframes flashRed {
+            0% { opacity: 1; }
+            50% { opacity: 0.2; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="toast-msg" id="toast">Settings saved successfully!</div>
+
+<div class="container">
+    <header>
+        <h1>📻 Walkie-Talkie Command Center Pro</h1>
+        <p>Multi-channel ESP32 voice fleet and dispatch center</p>
+    </header>
+    
+    <!-- Global Settings -->
+    <div class="global-box">
+        <div class="control-group">
+            <label>Server Host:</label>
+            <input type="text" id="custom-host" value="broker.hivemq.com">
+        </div>
+        <div class="control-group">
+            <label>WebSocket Port:</label>
+            <input type="text" id="ws-port" value="8000">
+        </div>
+        <div class="control-group">
+            <label>Secret Group Code:</label>
+            <input type="text" id="global-secret" value="secret2026">
+        </div>
+        <div class="control-group" style="justify-content: flex-end; display: flex;">
+            <label>&nbsp;</label>
+            <button class="connect-btn" onclick="connectMqtt()">Connect</button>
+        </div>
+        <div id="conn-status">Status: Disconnected from server</div>
+    </div>
+
+    <!-- Master / All-Call Broadcast Bar -->
+    <div class="master-call-box">
+        <div>
+            <strong style="font-size: 16px; color: var(--accent-yellow);">🌐 Master Group (All-Call Broadcast)</strong>
+            <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">Voice or monitor across all radios simultaneously</div>
+        </div>
+        <div class="master-settings">
+            <div class="control-group" style="margin:0;">
+                <label style="font-size:10px; color:var(--text-muted);">Protocol:</label>
+                <select id="master-proto" onchange="handleDropdownChange('master-proto', 'custom-master-proto')">
+                    <option value="UDP">UDP</option>
+                    <option value="TCP">TCP</option>
+                    <option value="MQTT_AUDIO">MQTT Audio</option>
+                    <option value="--">-- (Custom / Add)</option>
+                </select>
+                <input type="text" id="custom-master-proto" style="display:none; margin-top:3px; padding:4px; font-size:12px;" placeholder="Custom protocol...">
+            </div>
+            <div class="control-group" style="margin:0;">
+                <label style="font-size:10px; color:var(--text-muted);">Port:</label>
+                <select id="master-port" onchange="handleDropdownChange('master-port', 'custom-master-port')">
+                    <option value="4210">4210</option>
+                    <option value="8883">8883</option>
+                    <option value="1883">1883</option>
+                    <option value="--">-- (Custom / Add)</option>
+                </select>
+                <input type="text" id="custom-master-port" style="display:none; margin-top:3px; padding:4px; font-size:12px;" placeholder="Custom port...">
+            </div>
+        </div>
+        <div class="master-controls">
+            <button class="group-monitor-btn" id="master-spk-btn" onclick="toggleMasterSpeaker(this)">🔊 Group Monitor</button>
+            <button class="mic-master-btn" id="master-mic-btn" onclick="toggleMasterMic(this)">🎤 Broadcast to All</button>
+        </div>
+    </div>
+
+    <!-- 10 Radio Units -->
+    <div class="section-title">Radio Fleet Units (1 - 10)</div>
+    <div class="radios-grid" id="radios-container">
+        <!-- Generated cards will appear here -->
+    </div>
+</div>
+
+<script>
+    let client;
+    const maxRadios = 10;
+
+    // Persistent global option lists across all radios
+    let globalProtocols = ["UDP", "TCP", "MQTT_AUDIO"];
+    let globalPorts = ["4210", "8883", "1883"];
+
+    // Radio configuration storage (covering all 5 channels uniformly per radio)
+    let radioConfigs = {};
+    for (let i = 1; i <= maxRadios; i++) {
+        radioConfigs[i] = {
+            name: `YO5VEB-${i}`,
+            protocol: "UDP",
+            port: "4210",
+            activeChannel: "1",
+            channels: {}
+        };
+        for (let c = 1; c <= 5; c++) {
+            radioConfigs[i].channels[c] = { rx: true, tx: true };
+        }
+    }
+
+    function showToast(text) {
+        let t = document.getElementById('toast');
+        t.innerText = text;
+        t.style.display = 'block';
+        setTimeout(() => { t.style.display = 'none'; }, 2500);
+    }
+
+    function handleDropdownChange(selectId, inputId) {
+        let sel = document.getElementById(selectId);
+        let inp = document.getElementById(inputId);
+        if (sel.value === "--") {
+            inp.style.display = "block";
+            inp.focus();
+        } else {
+            inp.style.display = "none";
+        }
+    }
+
+    function connectMqtt() {
+        let host = document.getElementById('custom-host').value;
+        let port = Number(document.getElementById('ws-port').value);
+        let clientId = "web_admin_" + Math.random().toString(16).substring(2, 8);
+
+        client = new Paho.MQTT.Client(host, port, "/mqtt", clientId);
+        client.onConnectionLost = onConnectionLost;
+        client.onMessageArrived = onMessageArrived;
+
+        client.connect({
+            onSuccess: () => {
+                let statusEl = document.getElementById('conn-status');
+                statusEl.innerText = "Status: Connected & Online";
+                statusEl.style.color = "var(--accent-green)";
+                statusEl.style.background = "rgba(16, 185, 129, 0.1)";
+                statusEl.style.borderColor = "rgba(16, 185, 129, 0.3)";
+                let globalSecret = document.getElementById('global-secret').value;
+                
+                client.subscribe(globalSecret + "/radio/+/status");
+                client.subscribe(globalSecret + "/radio/+/telemetry");
+                
+                renderRadios();
+                setInterval(sendTelemetryPings, 5000);
+            },
+            onFailure: (err) => {
+                document.getElementById('conn-status').innerText = "Error: " + err.errorMessage;
+            },
+            useSSL: false
+        });
+    }
+
+    function onConnectionLost(responseObject) {
+        let statusEl = document.getElementById('conn-status');
+        statusEl.innerText = "Connection lost: " + responseObject.errorMessage;
+        statusEl.style.color = "var(--accent-red)";
+        
+        for (let i = 1; i <= maxRadios; i++) {
+            let dot = document.getElementById(`dot-${i}`);
+            let card = document.getElementById(`card-${i}`);
+            if (dot && card) {
+                dot.className = "status-dot";
+                card.classList.remove('active-online');
+            }
+        }
+    }
+
+    function buildOptionsHtml(list, selectedVal) {
+        let html = "";
+        list.forEach(item => {
+            let sel = (item === selectedVal) ? "selected" : "";
+            html += `<option value="${item}" ${sel}>${item}</option>`;
+        });
+        html += `<option value="--">-- (Custom / Add)</option>`;
+        return html;
+    }
+
+    function renderRadios() {
+        let container = document.getElementById('radios-container');
+        container.innerHTML = "";
+
+        for (let i = 1; i <= maxRadios; i++) {
+            let cfg = radioConfigs[i];
+            let activeChan = cfg.activeChannel;
+            let curRx = cfg.channels[activeChan] ? cfg.channels[activeChan].rx : true;
+            let curTx = cfg.channels[activeChan] ? cfg.channels[activeChan].tx : true;
+
+            let html = `
+                <div class="radio-card" id="card-${i}">
+                    <div class="radio-header">
+                        <div class="status-badge">
+                            <span class="status-dot" id="dot-${i}" title="Offline"></span>
+                            <span>📻 Radio #${i}</span>
+                            <span class="master-badge" id="master-badge-${i}">MASTER</span>
+                        </div>
+                        <div class="telemetry-info" id="telemetry-${i}">
+                            <div class="wifi-bars" id="wifi-bars-${i}" title="Wi-Fi Signal: -- dBm">
+                                <div class="wifi-bar b1"></div>
+                                <div class="wifi-bar b2"></div>
+                                <div class="wifi-bar b3"></div>
+                                <div class="wifi-bar b4"></div>
+                            </div>
+                            <div class="battery-container" title="Battery: --V">
+                                <div class="battery-icon" id="batt-icon-${i}">
+                                    <div class="battery-fill" id="batt-fill-${i}" style="width: 100%;"></div>
+                                </div>
+                                <span id="batt-text-${i}" style="font-size: 10px;">--V</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="radio-body">
+                        <div class="field-group">
+                            <label>Callsign / Name:</label>
+                            <input type="text" id="name-${i}" value="${cfg.name}" oninput="updateRadioName(${i})">
+                        </div>
+                        <div class="field-group">
+                            <label>Channel:</label>
+                            <select id="channel-${i}" onchange="handleChannelChange(${i})">
+                                <option value="1" ${activeChan==="1"?"selected":""}>Channel 1</option>
+                                <option value="2" ${activeChan==="2"?"selected":""}>Channel 2</option>
+                                <option value="3" ${activeChan==="3"?"selected":""}>Channel 3</option>
+                                <option value="4" ${activeChan==="4"?"selected":""}>Channel 4</option>
+                                <option value="5" ${activeChan==="5"?"selected":""}>Channel 5</option>
+                            </select>
+                        </div>
+                        
+                        <!-- Protocol Select with universal persistent lists -->
+                        <div class="field-group">
+                            <label>Protocol:</label>
+                            <select id="proto-select-${i}" onchange="handleProtoDropdownChange(${i})">
+                                ${buildOptionsHtml(globalProtocols, cfg.protocol)}
+                            </select>
+                            <input type="text" id="proto-custom-${i}" style="display:none; margin-top:3px; padding:4px; font-size:12px;" placeholder="Type & Enter..." onkeydown="handleCustomEnter(event, ${i}, 'proto')">
+                        </div>
+
+                        <!-- Port Select with universal persistent lists -->
+                        <div class="field-group">
+                            <label>Port:</label>
+                            <select id="port-select-${i}" onchange="handlePortDropdownChange(${i})">
+                                ${buildOptionsHtml(globalPorts, cfg.port)}
+                            </select>
+                            <input type="text" id="port-custom-${i}" style="display:none; margin-top:3px; padding:4px; font-size:12px;" placeholder="Type & Enter..." onkeydown="handleCustomEnter(event, ${i}, 'port')">
+                        </div>
+                        
+                        <div class="field-group full-width">
+                            <label>RX / TX Permissions:</label>
+                            <div class="permissions-row">
+                                <label><input type="checkbox" id="rx-check-${i}" ${curRx?'checked':''} onchange="updatePermissions(${i})"> RX (Receive)</label>
+                                <label><input type="checkbox" id="tx-check-${i}" ${curTx?'checked':''} onchange="updatePermissions(${i})"> TX (Transmit)</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="audio-control-bar">
+                        <div class="audio-btns">
+                            <button class="icon-btn" onclick="toggleSpeaker(${i}, this)" title="Monitor / Speaker">🔊</button>
+                            <button class="icon-btn" onclick="toggleMic(${i}, this)" title="Transmit to this radio / Mic">🎤</button>
+                        </div>
+                        <div class="vu-meter" id="vu-${i}">
+                            <div class="vu-led"></div>
+                            <div class="vu-led"></div>
+                            <div class="vu-led"></div>
+                            <div class="vu-led"></div>
+                            <div class="vu-led"></div>
+                            <div class="vu-led"></div>
+                            <div class="vu-led"></div>
+                            <div class="vu-led"></div>
+                            <div class="vu-led"></div>
+                            <div class="vu-led"></div>
+                        </div>
+                    </div>
+
+                    <button class="save-btn" onclick="sendConfig(${i})">Save Settings</button>
+                </div>
+            `;
+            container.innerHTML += html;
+        }
+    }
+
+    function updateRadioName(id) {
+        radioConfigs[id].name = document.getElementById(`name-${id}`).value;
+    }
+
+    function updatePermissions(id) {
+        let chan = radioConfigs[id].activeChannel;
+        radioConfigs[id].channels[chan].rx = document.getElementById(`rx-check-${id}`).checked;
+        radioConfigs[id].channels[chan].tx = document.getElementById(`tx-check-${id}`).checked;
+        
+        // Save across all channels simultaneously as requested previously
+        for (let c = 1; c <= 5; c++) {
+            radioConfigs[id].channels[c].rx = radioConfigs[id].channels[chan].rx;
+            radioConfigs[id].channels[c].tx = radioConfigs[id].channels[chan].tx;
+        }
+    }
+
+    function handleChannelChange(id) {
+        let chanSelect = document.getElementById(`channel-${id}`);
+        radioConfigs[id].activeChannel = chanSelect.value;
+        renderRadios();
+    }
+
+    function handleProtoDropdownChange(id) {
+        let sel = document.getElementById(`proto-select-${id}`);
+        let inp = document.getElementById(`proto-custom-${id}`);
+        if (sel.value === "--") {
+            inp.style.display = "block";
+            inp.focus();
+        } else {
+            inp.style.display = "none";
+            radioConfigs[id].protocol = sel.value;
+            sendConfig(id);
+        }
+    }
+
+    function handlePortDropdownChange(id) {
+        let sel = document.getElementById(`port-select-${id}`);
+        let inp = document.getElementById(`port-custom-${id}`);
+        if (sel.value === "--") {
+            inp.style.display = "block";
+            inp.focus();
+        } else {
+            inp.style.display = "none";
+            radioConfigs[id].port = sel.value;
+            sendConfig(id);
+        }
+    }
+
+    function handleCustomEnter(e, id, type) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            let sel = document.getElementById(`${type}-select-${id}`);
+            let inp = document.getElementById(`${type}-custom-${id}`);
+            let val = inp.value.trim();
+
+            if (type === 'proto') {
+                if (val !== "") {
+                    if (!globalProtocols.includes(val)) globalProtocols.push(val);
+                    radioConfigs[id].protocol = val;
+                } else {
+                    let idx = globalProtocols.indexOf(sel.value);
+                    if (idx > -1) globalProtocols.splice(idx, 1);
+                    radioConfigs[id].protocol = globalProtocols[0] || "UDP";
+                }
+            } else if (type === 'port') {
+                if (val !== "") {
+                    if (!globalPorts.includes(val)) globalPorts.push(val);
+                    radioConfigs[id].port = val;
+                } else {
+                    let idx = globalPorts.indexOf(sel.value);
+                    if (idx > -1) globalPorts.splice(idx, 1);
+                    radioConfigs[id].port = globalPorts[0] || "4210";
+                }
+            }
+
+            renderRadios();
+            sendConfig(id);
+        }
+    }
+
+    function sendTelemetryPings() {
+        if (!client || !client.isConnected()) return;
+        let globalSecret = document.getElementById('global-secret').value;
+        for (let i = 1; i <= maxRadios; i++) {
+            let topic = `${globalSecret}/radio/${i}/ping`;
+            let message = new Paho.MQTT.Message(JSON.stringify({ cmd: "telemetry_req" }));
+            message.destinationName = topic;
+            client.send(message);
+        }
+    }
+
+    function toggleSpeaker(id, btn) { btn.classList.toggle('active-spk'); }
+    function toggleMic(id, btn) { btn.classList.toggle('active-mic'); }
+    
+    function toggleMasterMic(btn) {
+        let isActive = btn.classList.toggle('active');
+        for (let i = 1; i <= maxRadios; i++) {
+            let badge = document.getElementById(`master-badge-${i}`);
+            if (badge) {
+                if (isActive) badge.classList.add('visible');
+                else badge.classList.remove('visible');
+            }
+        }
+    }
+
+    function toggleMasterSpeaker(btn) { btn.classList.toggle('active-group-monitor'); }
+
+    function onMessageArrived(message) {
+        try {
+            let parts = message.destinationName.split('/');
+            if (parts.length >= 3 && parts[1] === 'radio') {
+                let id = Number(parts[2]);
+                let subType = parts[3];
+                let data = JSON.parse(message.payloadString);
+
+                let dot = document.getElementById(`dot-${id}`);
+                let card = document.getElementById(`card-${id}`);
+
+                if (subType === 'status' || subType === 'telemetry') {
+                    if (dot && card) {
+                        dot.classList.add('online');
+                        card.classList.add('active-online');
+                        dot.title = "Online";
+                    }
+
+                    if (data.talking === true || (data.level !== undefined && data.level > 0)) {
+                        dot.classList.add('talking');
+                        if (card) card.classList.add('traffic-flashing');
+                    } else {
+                        dot.classList.remove('talking');
+                        if (card) card.classList.remove('traffic-flashing');
+                    }
+
+                    if (data.level !== undefined) updateRadioMeter(id, data.level);
+                    if (data.rssi !== undefined) updateWifiBars(id, data.rssi);
+                    if (data.battery !== undefined) updateBatteryStatus(id, data.battery);
+                }
+            }
+        } catch (e) {
+            console.error("Error parsing incoming message:", e);
+        }
+    }
+
+    function updateWifiBars(id, rssi) {
+        let barsContainer = document.getElementById(`wifi-bars-${id}`);
+        if (!barsContainer) return;
+        let bars = barsContainer.children;
+        let activeCount = 0;
+        let isWarning = rssi < -80;
+
+        if (rssi >= -65) activeCount = 4;
+        else if (rssi >= -75) activeCount = 3;
+        else if (rssi >= -85) activeCount = 2;
+        else activeCount = 1;
+
+        barsContainer.title = `Wi-Fi Signal: ${rssi} dBm`;
+        for (let j = 0; j < bars.length; j++) {
+            bars[j].className = "wifi-bar b" + (j + 1);
+            if (j < activeCount) bars[j].classList.add(isWarning ? 'warning' : 'active');
+        }
+    }
+
+    function updateBatteryStatus(id, voltage) {
+        let fillEl = document.getElementById(`batt-fill-${id}`);
+        let iconEl = document.getElementById(`batt-icon-${id}`);
+        let textEl = document.getElementById(`batt-text-${id}`);
+        if (!fillEl || !iconEl || !textEl) return;
+
+        textEl.innerText = `${voltage}V`;
+        iconEl.title = `Battery: ${voltage}V`;
+
+        let percent = ((voltage - 3.2) / (4.2 - 3.2)) * 100;
+        if (percent > 100) percent = 100;
+        if (percent < 0) percent = 0;
+
+        fillEl.style.width = `${percent}%`;
+        if (voltage < 3.5) iconEl.classList.add('low');
+        else iconEl.classList.remove('low');
+    }
+
+    function updateRadioMeter(id, level) {
+        let vuContainer = document.getElementById(`vu-${id}`);
+        if (!vuContainer) return;
+        let leds = vuContainer.children;
+
+        for (let j = 0; j < leds.length; j++) {
+            if (j < level) {
+                if (j < 6) leds[j].style.background = "#22c55e";
+                else if (j < 8) leds[j].style.background = "#eab308";
+                else leds[j].style.background = "#ef4444";
+            } else {
+                leds[j].style.background = "#1e293b";
+            }
+        }
+    }
+
+    function sendConfig(id) {
+        let globalSecret = document.getElementById('global-secret').value;
+        let cfg = radioConfigs[id];
+        let channel = cfg.activeChannel;
+
+        let protoVal = cfg.protocol;
+        let portVal = cfg.port;
+
+        let rxEnabled = cfg.channels[channel].rx;
+        let txEnabled = cfg.channels[channel].tx;
+
+        let topic = `${globalSecret}/radio/${id}/cmd`;
+        let payload = JSON.stringify({
+            id: id,
+            name: cfg.name,
+            channel: Number(channel),
+            protocol: protoVal,
+            port: isNaN(portVal) ? portVal : Number(portVal),
+            rx: rxEnabled,
+            tx: txEnabled
+        });
+
+        if (client && client.isConnected()) {
+            let message = new Paho.MQTT.Message(payload);
+            message.destinationName = topic;
+            client.send(message);
+        }
+
+        showToast(`Radio #${id} settings saved & sent!`);
+    }
+</script>
+
+</body>
+</html>
