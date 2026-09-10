@@ -145,7 +145,7 @@
         </div>
         <div class="control-group">
             <label>WebSocket Port:</label>
-            <input type="text" id="ws-port" value="8000">
+            <input type="text" id="ws-port" value="8884">
         </div>
         <div class="control-group">
             <label>Secret Group Code:</label>
@@ -267,7 +267,7 @@
             onFailure: (err) => {
                 document.getElementById('conn-status').innerText = "Error: " + err.errorMessage;
             },
-            useSSL: false
+            useSSL: true
         });
     }
 
